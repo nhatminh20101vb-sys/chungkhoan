@@ -27,8 +27,8 @@ const SUSPICIOUS_ASSET_THRESHOLD = {
     3: 50_000
 };
 const MAP_UNLOCK_REQUIREMENTS = {
-    2: { level: 50, netWorth: 50_000_000 },        // Map1: level 50 + 50M VND
-    3: { level: 150, netWorth: 100_000_000 }       // Map2: level 150 + 100M CAD
+    2: { level: 25, netWorth: 50_000_000 },        // Map1: level 25 + 50M VND
+    3: { level: 50, netWorth: 50_000_000 }         // Map2: level 50 + 50M CAD
 };
 const MAP_CURRENCY = { 1: 'VND', 2: 'CAD', 3: 'USD' };
 const MAP_SWITCH_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
@@ -90,6 +90,52 @@ const MAP_STOCKS = {
 
 const STOCKS = { ...MAP_STOCKS[1], ...MAP_STOCKS[2], ...MAP_STOCKS[3] };
 
+// ==================== 🏠 BẤT ĐỘNG SẢN ====================
+// Bất động sản: tài sản dài hạn, không "nhảy giá" theo tick như cổ phiếu,
+// mà tăng giá trị đều theo thời gian (mô phỏng giá nhà tăng chậm) + có thể
+// được admin tạo "cơn sốt đất" (boost) hoặc chính sách hạ nhiệt (giảm).
+const REAL_ESTATE = {
+    1: [
+        { id: 'CHDC', name: 'Chung cư bình dân', emoji: '🏢', basePrice: 800_000_000, dailyGrowth: 0.0015 },
+        { id: 'NHAPHO', name: 'Nhà phố mặt tiền', emoji: '🏠', basePrice: 2_500_000_000, dailyGrowth: 0.0020 },
+        { id: 'BIETTHU', name: 'Biệt thự ven đô', emoji: '🏡', basePrice: 6_000_000_000, dailyGrowth: 0.0025 },
+        { id: 'DATNEN', name: 'Đất nền dự án', emoji: '🌳', basePrice: 1_200_000_000, dailyGrowth: 0.0030 },
+    ],
+    2: [
+        { id: 'CONDO', name: 'Condo Toronto', emoji: '🏙️', basePrice: 350, dailyGrowth: 0.0018 },
+        { id: 'TOWNHOME', name: 'Townhouse', emoji: '🏘️', basePrice: 600, dailyGrowth: 0.0022 },
+        { id: 'CABIN', name: 'Cabin vùng Bắc Cực', emoji: '🛖', basePrice: 200, dailyGrowth: 0.0028 },
+    ],
+    3: [
+        { id: 'HABITAT', name: 'Habitat Module', emoji: '🛰️', basePrice: 900, dailyGrowth: 0.0020 },
+        { id: 'DOME', name: 'Dome trên Sao Hỏa', emoji: '🪐', basePrice: 2_000, dailyGrowth: 0.0035 },
+    ],
+};
+
+function getRealEstateList(mapStage) {
+    return REAL_ESTATE[mapStage] || [];
+}
+
+function getRealEstateInfo(mapStage, typeId) {
+    return getRealEstateList(mapStage).find(p => p.id === typeId) || null;
+}
+
+/** Giá hiện tại của 1 loại BĐS = basePrice * (1 + dailyGrowth)^số_ngày + tác động thị trường BĐS (admin set) */
+function getRealEstateCurrentPrice(data, mapStage, typeId) {
+    const info = getRealEstateInfo(mapStage, typeId);
+    if (!info) return 0;
+    if (!data.realEstate) data.realEstate = {};
+    const key = `${mapStage}_${typeId}`;
+    if (!data.realEstate[key]) {
+        data.realEstate[key] = { createdAt: new Date().toISOString(), boostPct: 0 };
+    }
+    const market = data.realEstate[key];
+    const days = Math.max(0, (Date.now() - new Date(market.createdAt).getTime()) / 86_400_000);
+    const grown = info.basePrice * Math.pow(1 + info.dailyGrowth, days);
+    const boosted = grown * (1 + (market.boostPct || 0) / 100);
+    return Math.round(boosted);
+}
+
 // ==================== 📰 TIN TỨC NGẪU NHIÊN ====================
 
 const NEWS_TEMPLATES = [
@@ -132,6 +178,7 @@ const ACHIEVEMENTS = [
     { id: 'first_trade', name: 'Giao dịch đầu tiên', emoji: '🎯', desc: 'Thực hiện giao dịch lần đầu' },
     { id: 'trader_10', name: 'Nhà đầu tư nghiêm túc', emoji: '📈', desc: '10 giao dịch' },
     { id: 'trader_100', name: 'Chiến binh sàn', emoji: '⚔️', desc: '100 giao dịch' },
+    { id: 'trader_1000', name: 'Bàn Tay Thép', emoji: '🦾', desc: '1000 giao dịch' },
     { id: 'millionaire', name: 'Triệu phú', emoji: '💰', desc: 'Tổng tài sản đạt 10 triệu xu' },
     { id: 'billionaire', name: 'Tỷ phú', emoji: '🤑', desc: 'Tổng tài sản đạt 1 tỷ xu' },
     { id: 'big_loss', name: 'Nhà đầu tư dũng cảm', emoji: '😭', desc: 'Lỗ một lần hơn 50 triệu xu' },
@@ -145,7 +192,188 @@ const ACHIEVEMENTS = [
     { id: 'map_3', name: 'Vương giả Map 3', emoji: '🌌', desc: 'Đạt được Map 3' },
     { id: 'level_100', name: 'Tướng lĩnh sàn', emoji: '🛡️', desc: 'Đạt level 100' },
     { id: 'level_200', name: 'Thượng đế sàn', emoji: '⚡', desc: 'Đạt level 200' },
+    // Thành tích mới
+    { id: 'profit_100m', name: 'Vua Lợi Nhuận', emoji: '👑', desc: 'Lãi tích lũy 100 triệu' },
+    { id: 'profit_1b', name: 'Thiên Tài Đầu Tư', emoji: '🧠', desc: 'Lãi tích lũy 1 tỷ' },
+    { id: 'slot_100', name: 'Dân Chơi Máy', emoji: '🎰', desc: 'Chơi Slot 100 lần' },
+    { id: 'dice_50', name: 'Cúc Xắc Huyền Thoại', emoji: '🎲', desc: 'Chơi Dice 50 lần' },
+    { id: 'repay_on_time', name: 'Con Nợ Đúng Hẹn', emoji: '✅', desc: 'Trả nợ đúng hạn lần đầu' },
+    { id: 'credit_vip', name: 'Khách VIP', emoji: '💎', desc: 'Điểm tín nhiệm đạt 850+' },
+    { id: 'crisis_survivor', name: 'Vượt Bão Thị Trường', emoji: '🌪️', desc: 'Sống sót qua sự kiện khủng hoảng toàn thị trường' },
+    { id: 'bds_owner', name: 'Địa Chủ', emoji: '🏠', desc: 'Mua bất động sản đầu tiên' },
+    { id: 'level_25', name: 'Lính Mới Trưởng Thành', emoji: '🌱', desc: 'Đạt level 25 — đủ điều kiện Map 2' },
+    { id: 'level_50', name: 'Chiến Binh Lão Làng', emoji: '⚔️', desc: 'Đạt level 50 — đủ điều kiện Map 3' },
 ];
+
+// ==================== 💳 ĐIỂM TÍN NHIỆM (CREDIT SCORE) ====================
+
+const CREDIT_SCORE_TIERS = [
+    { min: 800, label: 'Khách VIP 💎', emoji: '💎', loanMultiplier: 1.5, interestDiscount: 0.3 },
+    { min: 700, label: 'Bình thường ✅', emoji: '✅', loanMultiplier: 1.0, interestDiscount: 0.0 },
+    { min: 500, label: 'Rủi ro ⚠️', emoji: '⚠️', loanMultiplier: 0.7, interestDiscount: -0.2 },
+    { min: 300, label: 'Nợ xấu 🔴', emoji: '🔴', loanMultiplier: 0.4, interestDiscount: -0.5 },
+    { min: 0,   label: 'Phá sản ☠️', emoji: '☠️', loanMultiplier: 0.1, interestDiscount: -1.0 },
+];
+
+function getCreditTier(score) {
+    for (const tier of CREDIT_SCORE_TIERS) {
+        if (score >= tier.min) return tier;
+    }
+    return CREDIT_SCORE_TIERS[CREDIT_SCORE_TIERS.length - 1];
+}
+
+function addCreditScore(userData, delta, reason = '') {
+    if (userData.creditScore === undefined) userData.creditScore = 700;
+    userData.creditScore = Math.max(0, Math.min(1000, (userData.creditScore || 700) + delta));
+    if (!userData.creditHistory) userData.creditHistory = [];
+    userData.creditHistory.unshift({ time: new Date().toISOString(), delta, score: userData.creditScore, reason });
+    if (userData.creditHistory.length > 20) userData.creditHistory.pop();
+}
+
+// ==================== 🏷️ DANH HIỆU NHÀ ĐẦU TƯ ====================
+
+const INVESTOR_BADGES = [
+    { id: 'badge_whale', name: 'Cá Voi 🐳', emoji: '🐳', desc: 'Lãi tích lũy hơn 10 triệu', check: (u) => (u.totalProfit || 0) >= 10_000_000 },
+    { id: 'badge_market_dominator', name: 'Đại Gia Ngân Hàng 🏦', emoji: '🏦', desc: 'Gửi tiết kiệm 100 triệu', check: (u) => (u.bank?.savings || 0) >= 100_000_000 },
+    { id: 'badge_gambler', name: 'Con Bạc Khát Nước 🎰', emoji: '🎰', desc: 'Thua Slot 100 lần', check: (u) => (u.slotLosses || 0) >= 100 },
+    { id: 'badge_bankrupt', name: 'Kẻ Vỡ Nợ 💀', emoji: '💀', desc: 'Bị siết nợ lần đầu', check: (u) => (u.timesLiquidated || 0) >= 1 },
+    { id: 'badge_diversifier', name: 'Phù Thủy Đa Ngành 🌈', emoji: '🌈', desc: 'Ôm đồng thời 7+ loại cổ phiếu', check: (u, d) => Object.values(u.portfolio || {}).filter(p => p.qty > 0).length >= 7 },
+    { id: 'badge_tax_lord', name: 'Đại Gia Thuế 📋', emoji: '📋', desc: 'Nộp thuế tổng cộng 5 triệu', check: (u) => (u.totalTaxPaid || 0) >= 5_000_000 },
+    { id: 'badge_high_roller', name: 'Tay Chơi Lớn 💸', emoji: '💸', desc: 'Giao dịch đơn lẻ hơn 100 triệu', check: (u) => (u.maxSingleTrade || 0) >= 100_000_000 },
+    { id: 'badge_iron_hand', name: 'Bàn Tay Thép 🦾', emoji: '🦾', desc: '1000 giao dịch', check: (u) => (u.totalTrades || 0) >= 1000 },
+    { id: 'badge_map2_pioneer', name: 'Tiên Phong Map 2 🗺️', emoji: '🗺️', desc: 'Đặt chân lên Map 2', check: (u) => (u.mapStage || 1) >= 2 || u.map2RegisteredAt },
+    { id: 'badge_map3_legend', name: 'Huyền Thoại Map 3 🌌', emoji: '🌌', desc: 'Chinh phục Map 3', check: (u) => (u.mapStage || 1) >= 3 || u.map3RegisteredAt },
+    { id: 'badge_vip_credit', name: 'Khách VIP 💎', emoji: '💎', desc: 'Điểm tín nhiệm 850+', check: (u) => (u.creditScore || 700) >= 850 },
+    { id: 'badge_bds_mogul', name: 'Ông Trùm BĐS 🏢', emoji: '🏢', desc: 'Sở hữu 3+ bất động sản cùng lúc', check: (u) => (u.properties || []).length >= 3 },
+];
+
+function checkInvestorBadges(userData, data) {
+    if (!userData.investorBadges) userData.investorBadges = [];
+    const newBadges = [];
+    for (const badge of INVESTOR_BADGES) {
+        if (!userData.investorBadges.includes(badge.id)) {
+            try {
+                if (badge.check(userData, data)) {
+                    userData.investorBadges.push(badge.id);
+                    newBadges.push(badge);
+                }
+            } catch(e) {}
+        }
+    }
+    return newBadges;
+}
+
+// ==================== 🌍 SỰ KIỆN TOÀN THỊ TRƯỜNG ====================
+
+const MARKET_CRISIS_EVENTS = [
+    {
+        id: 'economic_crisis',
+        name: '💥 Khủng hoảng kinh tế',
+        desc: 'Khủng hoảng tài chính toàn cầu bùng nổ! Tất cả cổ phiếu đồng loạt lao dốc.',
+        impact: [-0.15, -0.08],
+        color: 0xff0000,
+        affectAll: true,
+    },
+    {
+        id: 'inflation',
+        name: '📈 Lạm phát cao bất thường',
+        desc: 'Lạm phát tăng vọt, áp lực lên thị trường. Cổ phiếu hàng hóa & năng lượng tăng, còn lại giảm.',
+        impact: [-0.05, 0.10],
+        color: 0xff8800,
+        affectAll: true,
+        sectorBoost: { 'Hàng hóa': 0.08, 'Năng lượng': 0.06, 'Năng lượng xanh': 0.05 },
+    },
+    {
+        id: 'tech_boom',
+        name: '🚀 Bùng nổ công nghệ',
+        desc: 'Làn sóng AI và công nghệ bùng nổ toàn cầu! Cổ phiếu công nghệ tăng mạnh.',
+        impact: [0.05, 0.18],
+        color: 0x00ff88,
+        affectAll: true,
+        sectorBoost: { 'Công nghệ': 0.15, 'Trí tuệ nhân tạo': 0.18, 'AI': 0.15 },
+    },
+    {
+        id: 'bank_crisis',
+        name: '🏦 Khủng hoảng ngân hàng',
+        desc: 'Loạt ngân hàng lớn mất thanh khoản! Cổ phiếu tài chính và ngân hàng lao dốc.',
+        impact: [-0.12, -0.04],
+        color: 0xff4444,
+        affectAll: true,
+        sectorPenalty: { 'Tài chính': -0.15, 'Bảo hiểm': -0.10 },
+    },
+    {
+        id: 'trade_war',
+        name: '⚔️ Chiến tranh thương mại',
+        desc: 'Căng thẳng địa chính trị leo thang, thuế quan trả đũa khắp nơi. Thị trường hỗn loạn.',
+        impact: [-0.08, 0.03],
+        color: 0xe67e22,
+        affectAll: true,
+    },
+    {
+        id: 'green_revolution',
+        name: '🌿 Cách mạng xanh toàn cầu',
+        desc: 'Hội nghị khí hậu COP thông qua hiệp ước lịch sử! Năng lượng tái tạo bứt phá.',
+        impact: [0.03, 0.15],
+        color: 0x00cc66,
+        affectAll: true,
+        sectorBoost: { 'Năng lượng xanh': 0.18, 'Năng lượng tái tạo': 0.16, 'Nông nghiệp': 0.07 },
+    },
+];
+
+function startMarketCrisisEngine() {
+    function scheduleNext() {
+        // Sự kiện toàn thị trường: mỗi 3-8 giờ
+        const delay = (Math.random() * 300 + 180) * 60_000;
+        setTimeout(async () => {
+            try {
+                const data = loadData();
+                if (!data.sessionOpen) { scheduleNext(); return; }
+                if (!data.marketCrisisHistory) data.marketCrisisHistory = [];
+
+                const event = MARKET_CRISIS_EVENTS[Math.floor(Math.random() * MARKET_CRISIS_EVENTS.length)];
+                const [minImpact, maxImpact] = event.impact;
+
+                for (const [code, info] of Object.entries(STOCKS)) {
+                    let impact = minImpact + Math.random() * (maxImpact - minImpact);
+                    // Bonus/penalty theo ngành
+                    if (event.sectorBoost && event.sectorBoost[info.sector]) {
+                        impact = event.sectorBoost[info.sector] + (Math.random() * 0.04 - 0.02);
+                    } else if (event.sectorPenalty && event.sectorPenalty[info.sector]) {
+                        impact = event.sectorPenalty[info.sector] + (Math.random() * 0.04 - 0.02);
+                    }
+                    const oldPrice = data.stockPrices[code];
+                    let newPrice = Math.round(oldPrice * (1 + impact) * 10) / 10;
+                    if (newPrice < 1) newPrice = 1;
+                    data.stockPrices[code] = newPrice;
+                }
+
+                const entry = { time: new Date().toISOString(), eventId: event.id, name: event.name };
+                data.marketCrisisHistory.unshift(entry);
+                if (data.marketCrisisHistory.length > 20) data.marketCrisisHistory.pop();
+                saveData(data);
+
+                for (const guild of client.guilds.cache.values()) {
+                    const channel = getAnnounceChannel(guild);
+                    if (!channel) continue;
+                    const isPositive = (minImpact + maxImpact) / 2 > 0;
+                    const embed = new EmbedBuilder()
+                        .setTitle(`🌍 SỰ KIỆN TOÀN THỊ TRƯỜNG: ${event.name}`)
+                        .setDescription(`**${event.desc}**\n\n⚠️ Tất cả cổ phiếu trên toàn thị trường bị ảnh hưởng!`)
+                        .setColor(event.color)
+                        .addFields(
+                            { name: 'Biên độ tác động', value: `${(minImpact*100).toFixed(1)}% đến ${(maxImpact*100).toFixed(1)}%`, inline: true },
+                            { name: 'Phạm vi', value: 'Toàn bộ thị trường', inline: true }
+                        )
+                        .setTimestamp()
+                        .setFooter({ text: '💡 Sự kiện toàn thị trường ảnh hưởng đồng loạt tất cả mã!' });
+                    channel.send({ content: '@everyone 🌍 **SỰ KIỆN THỊ TRƯỜNG!**', embeds: [embed] }).catch(() => {});
+                }
+            } catch(e) { console.log(`❌ Crisis engine: ${e.message}`); }
+            scheduleNext();
+        }, delay);
+    }
+    scheduleNext();
+}
 
 function checkAchievements(userData, data, context = {}) {
     const unlocked = [];
@@ -154,6 +382,7 @@ function checkAchievements(userData, data, context = {}) {
     if (!has('first_trade') && userData.totalTrades >= 1) unlocked.push('first_trade');
     if (!has('trader_10') && userData.totalTrades >= 10) unlocked.push('trader_10');
     if (!has('trader_100') && userData.totalTrades >= 100) unlocked.push('trader_100');
+    if (!has('trader_1000') && userData.totalTrades >= 1000) unlocked.push('trader_1000');
 
     const netWorth = userData.balance + (userData.bank?.savings || 0) +
         Object.entries(userData.portfolio).reduce((s, [c, p]) => s + p.qty * (data.stockPrices[c] || 0), 0);
@@ -173,6 +402,18 @@ function checkAchievements(userData, data, context = {}) {
     if (!has('map_3') && (userData.mapStage || 1) >= 3) unlocked.push('map_3');
     if (!has('level_100') && userData.level >= 100) unlocked.push('level_100');
     if (!has('level_200') && userData.level >= 200) unlocked.push('level_200');
+
+    // Thành tích mới
+    if (!has('profit_100m') && (userData.totalProfit || 0) >= 100_000_000) unlocked.push('profit_100m');
+    if (!has('profit_1b') && (userData.totalProfit || 0) >= 1_000_000_000) unlocked.push('profit_1b');
+    if (!has('slot_100') && (userData.slotPlays || 0) >= 100) unlocked.push('slot_100');
+    if (!has('dice_50') && (userData.dicePlays || 0) >= 50) unlocked.push('dice_50');
+    if (!has('credit_vip') && (userData.creditScore || 700) >= 850) unlocked.push('credit_vip');
+    if (!has('bds_owner') && (userData.properties || []).length >= 1) unlocked.push('bds_owner');
+    if (!has('level_25') && userData.level >= 25) unlocked.push('level_25');
+    if (!has('level_50') && userData.level >= 50) unlocked.push('level_50');
+    if (!has('repay_on_time') && context.repaidOnTime) unlocked.push('repay_on_time');
+    if (!has('crisis_survivor') && context.crisisSurvivor) unlocked.push('crisis_survivor');
 
     for (const id of unlocked) userData.achievements.push(id);
     return unlocked;
@@ -215,6 +456,9 @@ function loadData() {
         if (!data.priceAlerts) data.priceAlerts = {};
         if (!data.transactionLog) data.transactionLog = [];
         if (!data.giveaways) data.giveaways = [];
+        if (!data.cheatAlerts) data.cheatAlerts = [];
+        if (!data.transferLog) data.transferLog = [];
+        if (!data.realEstate) data.realEstate = {};
         for (const code of Object.keys(STOCKS)) {
             if (!data.stockPrices[code]) data.stockPrices[code] = STOCKS[code].basePrice;
             if (!data.stockHistory[code]) data.stockHistory[code] = [];
@@ -248,6 +492,9 @@ function makeDefaultData() {
         priceAlerts: {},
         transactionLog: [],
         giveaways: [],
+        cheatAlerts: [],
+        transferLog: [],
+        realEstate: {},
         usedIds: { 1: [], 2: [], 3: [] },   // pool ID đã cấp cho từng map
         releasedIds: { 1: [], 2: [], 3: [] }, // pool ID đã giải phóng (reset)
     };
@@ -294,6 +541,23 @@ function makeDefaultUserData() {
         moneyHistory: [],
         tradeBanUntil: null,
         bankruptcy: null,
+        transferDayKey: null,
+        transferCountToday: 0,
+        properties: [], // bất động sản đang sở hữu: { id, typeId, boughtAt, boughtPrice, mapStage }
+        // Stats mới
+        creditScore: 700,
+        creditHistory: [],
+        investorBadges: [],
+        slotPlays: 0,
+        slotWins: 0,
+        slotLosses: 0,
+        dicePlays: 0,
+        diceWins: 0,
+        diceLosses: 0,
+        timesLiquidated: 0,
+        timesRepaidOnTime: 0,
+        maxSingleTrade: 0,
+        peakNetWorth: 0,
     };
 }
 
@@ -323,6 +587,23 @@ function ensureUserData(data, userId) {
     if (u.tradeBanUntil === undefined) u.tradeBanUntil = null;
     if (u.mapSwitchCooldownUntil === undefined) u.mapSwitchCooldownUntil = null;
     if (!u.bankruptcy) u.bankruptcy = null;
+    if (u.transferDayKey === undefined) u.transferDayKey = null;
+    if (u.transferCountToday === undefined) u.transferCountToday = 0;
+    if (!u.properties) u.properties = [];
+    // Mới: credit score & stats
+    if (u.creditScore === undefined) u.creditScore = 700;
+    if (!u.creditHistory) u.creditHistory = [];
+    if (!u.investorBadges) u.investorBadges = [];
+    if (u.slotPlays === undefined) u.slotPlays = 0;
+    if (u.slotWins === undefined) u.slotWins = 0;
+    if (u.slotLosses === undefined) u.slotLosses = 0;
+    if (u.dicePlays === undefined) u.dicePlays = 0;
+    if (u.diceWins === undefined) u.diceWins = 0;
+    if (u.diceLosses === undefined) u.diceLosses = 0;
+    if (u.timesLiquidated === undefined) u.timesLiquidated = 0;
+    if (u.timesRepaidOnTime === undefined) u.timesRepaidOnTime = 0;
+    if (u.maxSingleTrade === undefined) u.maxSingleTrade = 0;
+    if (u.peakNetWorth === undefined) u.peakNetWorth = 0;
     // 3 ví tiền độc lập theo map
     if (u.balanceVND === undefined) { u.balanceVND = u.balance || INITIAL_MONEY; }
     if (u.balanceCAD === undefined) u.balanceCAD = 0;
@@ -634,6 +915,58 @@ function isTradeBanned(userData) {
     return new Date(userData.tradeBanUntil).getTime() > Date.now();
 }
 
+// ==================== 🛡️ CHỐNG GIAN LẬN (ANTI-CHEAT) ====================
+
+// Rate-limit: chặn spam lệnh quá nhanh (chống bot/macro tự động click)
+const COMMAND_COOLDOWN_MS = 1200;
+const lastCommandAt = {}; // userId -> timestamp
+
+function isOnCommandCooldown(userId) {
+    const now = Date.now();
+    const last = lastCommandAt[userId] || 0;
+    if (now - last < COMMAND_COOLDOWN_MS) return true;
+    lastCommandAt[userId] = now;
+    return false;
+}
+
+// Theo dõi chuyển tiền gần đây để phát hiện "rửa tiền" qua lại giữa 2 acc
+const TRANSFER_WINDOW_MS = 10 * 60 * 1000; // 10 phút
+const TRANSFER_LOOP_THRESHOLD = 3; // ≥3 lượt qua lại trong khung giờ là đáng ngờ
+
+function recordTransferAndCheckLoop(data, fromId, toId, amount) {
+    if (!data.transferLog) data.transferLog = [];
+    const now = Date.now();
+    data.transferLog.push({ from: fromId, to: toId, amount, t: now });
+    // dọn log cũ
+    data.transferLog = data.transferLog.filter(e => now - e.t < TRANSFER_WINDOW_MS);
+
+    // Đếm số lần A->B và B->A trong khung giờ gần đây
+    const aToB = data.transferLog.filter(e => e.from === fromId && e.to === toId).length;
+    const bToA = data.transferLog.filter(e => e.from === toId && e.to === fromId).length;
+    const isSuspiciousLoop = aToB >= TRANSFER_LOOP_THRESHOLD || bToA >= TRANSFER_LOOP_THRESHOLD || (aToB >= 2 && bToA >= 2);
+    return isSuspiciousLoop;
+}
+
+function flagCheatAlert(data, guild, userId, exchangeId, reason) {
+    if (!data.cheatAlerts) data.cheatAlerts = [];
+    data.cheatAlerts.unshift({ time: new Date().toISOString(), userId: userId.toString(), exchangeId: exchangeId || 'UNKNOWN', reason });
+    if (data.cheatAlerts.length > 50) data.cheatAlerts.pop();
+    const channel = getAnnounceChannel(guild);
+    if (!channel) return;
+    const alertText = ROOT_ADMIN_IDS.map(id => `<@${id}>`).join(' ');
+    const embed = new EmbedBuilder()
+        .setTitle('🚨 CẢNH BÁO KHẢ NĂNG GIAN LẬN')
+        .setColor(0xff0000)
+        .setDescription(`Phát hiện hành vi đáng ngờ từ <@${userId}>`)
+        .addFields(
+            { name: 'ID sàn', value: `${exchangeId || 'UNKNOWN'}`, inline: true },
+            { name: 'Discord ID', value: `${userId}`, inline: true },
+            { name: 'Lý do', value: reason, inline: false }
+        )
+        .setTimestamp();
+    channel.send({ content: `${alertText} Cảnh báo gian lận`, embeds: [embed] }).catch(() => { });
+}
+
 function processExpiredLoans(data) {
     let changed = false;
     for (const [uid, userData] of Object.entries(data.users || {})) {
@@ -661,6 +994,8 @@ function processExpiredLoans(data) {
                 debt: margin.borrowed,
                 reason: 'Không đủ tài sản để trả nợ đúng hạn',
             };
+            userData.timesLiquidated = (userData.timesLiquidated || 0) + 1;
+            addCreditScore(userData, -50, 'Bị siết nợ do phá sản');
         } else {
             userData.balance = 100;
             userData.bank = {
@@ -742,18 +1077,18 @@ function startPriceEngine() {
                 const deviation = (current - base) / base;
                 const drift = -deviation * base * 0.0003;  // nhẹ hơn nhiều
 
-                // ── Shock ngẫu nhiên theo volatility ──
+                // ── Shock ngẫu nhiên theo volatility (đã tăng để giá "nhảy" rõ hơn) ──
                 const vol = info.volatility;
-                const normalShock = (Math.random() * 2 - 1) * base * vol * 0.6;
+                const normalShock = (Math.random() * 2 - 1) * base * vol * 1.4;
 
-                // ── Spike hiếm (3% mỗi tick): tin tức giả lập ──
+                // ── Spike hiếm (5% mỗi tick, biên độ lớn hơn): tin tức giả lập ──
                 let spike = 0;
-                if (Math.random() < 0.03) {
-                    spike = (Math.random() > 0.5 ? 1 : -1) * base * (0.03 + Math.random() * 0.07);
+                if (Math.random() < 0.05) {
+                    spike = (Math.random() > 0.5 ? 1 : -1) * base * (0.05 + Math.random() * 0.10);
                 }
 
                 // ── Tổng hợp: xu hướng + drift + shock + spike ──
-                const trendForce = trend.dir * base * vol * 0.4;
+                const trendForce = trend.dir * base * vol * 0.9;
                 let newPrice = current + drift + trendForce + normalShock + spike;
 
                 // ── Giới hạn: ±60% quanh basePrice ──
@@ -1117,6 +1452,9 @@ function createProfileEmbed(userObj, data, userData) {
     }
 
     const netWorth = userData.balance + totalStockValue + (userData.bank?.savings || 0);
+    // Cập nhật peak net worth
+    if (netWorth > (userData.peakNetWorth || 0)) userData.peakNetWorth = netWorth;
+
     const expNeeded = expToNextLevel(userData.level, userData.mapStage || 1);
     const expBar = Math.floor((userData.exp / expNeeded) * 10);
     const expDisplay = '🟦'.repeat(expBar) + '⬛'.repeat(10 - expBar);
@@ -1125,6 +1463,27 @@ function createProfileEmbed(userObj, data, userData) {
         const a = ACHIEVEMENTS.find(x => x.id === id);
         return a ? a.emoji : '';
     }).join(' ');
+
+    // Credit score
+    const creditScore = userData.creditScore || 700;
+    const creditTier = getCreditTier(creditScore);
+    const creditBar = Math.floor((creditScore / 1000) * 10);
+    const creditDisplay = '🟩'.repeat(creditBar) + '⬛'.repeat(10 - creditBar);
+
+    // Investor badges
+    const badgesDisplay = (userData.investorBadges || []).map(id => {
+        const b = INVESTOR_BADGES.find(x => x.id === id);
+        return b ? b.emoji : '';
+    }).join(' ') || '*Chưa có*';
+
+    // Mở khóa tính năng theo level
+    const lvl = userData.level || 1;
+    const unlockedFeatures = [];
+    if (lvl >= 10) unlockedFeatures.push('🎰 Slot');
+    if (lvl >= 20) unlockedFeatures.push('🎲 Dice');
+    if (lvl >= 25) unlockedFeatures.push('🗺️ Map 2');
+    if (lvl >= 50) unlockedFeatures.push('🌌 Map 3');
+    const featureText = unlockedFeatures.length > 0 ? unlockedFeatures.join(' | ') : '*Lên lv 10 để mở Slot*';
 
     const depositStatus = userData.bank?.depositActive ? `🟢 Đang gửi ${formatMoney(userData.bank.depositAmount || 0)} xu đến ${new Date(userData.bank.depositDueAt).toLocaleString('vi-VN')}` : '⚪ Không có khoản gửi đang hoạt động';
     const loanStatus = userData.margin?.borrowed > 0 ? `🔴 Nợ ${formatMoney(userData.margin.borrowed)} xu, hạn ${new Date(userData.margin.dueAt).toLocaleString('vi-VN')}` : '🟢 Không có khoản vay';
@@ -1145,18 +1504,30 @@ function createProfileEmbed(userObj, data, userData) {
             { name: '💎 Tổng tài sản', value: `${fmtCur(netWorth, userData.mapStage||1)}`, inline: true },
             { name: '💼 Ví 3 map', value: `🇻🇳 VND: ${fmtCur(userData.balanceVND||0,1)}\n🇨🇦 CAD: ${fmtCur(userData.balanceCAD||0,2)}\n🇺🇸 USD: ${fmtCur(userData.balanceUSD||0,3)}`, inline: false },
             { name: '⭐ Level', value: `**${userData.level}**`, inline: true },
-            { name: '🔄 GD', value: `${userData.totalTrades}`, inline: true },
+            { name: '🔄 Tổng GD', value: `${userData.totalTrades}`, inline: true },
             { name: '📊 Margin nợ', value: userData.margin?.borrowed > 0 ? `${formatMoney(userData.margin.borrowed)} xu` : 'Không có', inline: true },
+            { name: `💳 Tín nhiệm: ${creditScore}/1000 — ${creditTier.label}`, value: creditDisplay, inline: false },
+            { name: '📈 Thống kê chi tiết', value: [
+                `💹 Tổng lợi nhuận: **${formatMoney(userData.totalProfit||0)} xu**`,
+                `💸 GD đơn lớn nhất: **${formatMoney(userData.maxSingleTrade||0)} xu**`,
+                `🏆 Tài sản đỉnh cao: **${formatMoney(userData.peakNetWorth||0)} xu**`,
+                `🎰 Slot: ${userData.slotPlays||0} ván (W:${userData.slotWins||0}/L:${userData.slotLosses||0})`,
+                `🎲 Dice: ${userData.dicePlays||0} ván (W:${userData.diceWins||0}/L:${userData.diceLosses||0})`,
+                `🏦 Vay vốn: trả đúng hạn ${userData.timesRepaidOnTime||0} lần | bị siết ${userData.timesLiquidated||0} lần`,
+                `📅 Tham gia: ${userData.joinedAt ? new Date(userData.joinedAt).toLocaleDateString('vi-VN') : 'N/A'}`,
+            ].join('\n'), inline: false },
             { name: '🏦 Gửi ngân hàng', value: depositStatus, inline: false },
             { name: '💸 Vay vốn', value: loanStatus, inline: false },
             { name: '⚖️ Trạng thái', value: `${banStatus}\n${bankruptcyStatus}`, inline: false },
+            { name: '🔓 Tính năng đã mở', value: featureText, inline: false },
             { name: '🗺️ Chuyển map', value: userData.mapSwitchCooldownUntil && new Date(userData.mapSwitchCooldownUntil).getTime() > Date.now() ? `⏳ Chờ quay lại map trước: ${getTimeRemaining(new Date(userData.mapSwitchCooldownUntil).getTime())}` : '✅ Có thể đổi sang map khác', inline: false },
             { name: `📈 EXP (${userData.exp}/${expNeeded})`, value: expDisplay, inline: false },
             { name: '📦 Danh mục', value: portfolioLines || '*Chưa có cổ phiếu*', inline: false }
         );
     if (shortLines) embed.addFields({ name: '📉 Vị thế Short', value: shortLines, inline: false });
-    if (achs) embed.addFields({ name: '🏅 Thành tích', value: achs, inline: false });
-    embed.setFooter({ text: `ID: ${userObj.id}` });
+    if (achs) embed.addFields({ name: '🏅 Thành tích', value: achs || '*Chưa có*', inline: false });
+    embed.addFields({ name: '🏷️ Danh hiệu NĐT', value: badgesDisplay, inline: false });
+    embed.setFooter({ text: `ID: ${userObj.id} | !credit — lịch sử tín nhiệm | !badges — danh hiệu` });
     return embed;
 }
 
@@ -1326,7 +1697,8 @@ client.once(Events.ClientReady, async () => {
     scheduleSession();
     startNewsEngine();
     applyMarginInterest();
-    console.log('Price engine + Session + News + Margin interest đã khởi động!');
+    startMarketCrisisEngine();
+    console.log('Price engine + Session + News + Margin interest + Crisis engine đã khởi động!');
     console.log('='.repeat(60));
 });
 
@@ -1339,7 +1711,13 @@ client.on(Events.MessageCreate, async (message) => {
     const command = args.shift().toLowerCase();
     const uid = message.author.id;
 
-    if (!['help','h','dangky','register','dangnhap','top','price','stocks','p','market','cp','map','admin'].includes(command)) {
+    // ── Chống spam lệnh (anti-macro/anti-bot) ──
+    const NO_COOLDOWN_CMDS = ['help', 'h', 'huongdan', 'guide'];
+    if (!NO_COOLDOWN_CMDS.includes(command) && isOnCommandCooldown(uid)) {
+        return message.reply('⏳ Bạn đang gõ lệnh quá nhanh! Chờ một chút rồi thử lại.').catch(() => {});
+    }
+
+    if (!['help','h','help2','h2','dangky','register','dangnhap','dn','top','rank','price','stocks','p','gia','market','cp','xem','map','san','admin','huongdan','guide','huongdancanban','chart','bieudo','compare','sosanh','achievements','thanhtich','profile','me','info','bds','realestate','mylimits','lghan','myalerts','cbtoi','history','lichsu','bank','nh','credit','tinnhiem','badges','danhieu','stats','thongke'].includes(command)) {
         const data = loadData();
         const userData = data.users?.[uid];
         if (isTradeBanned(userData)) return message.reply(`❌ Bạn đang bị cấm giao dịch đến ${new Date(userData.tradeBanUntil).toLocaleString('vi-VN')}.`);
@@ -1351,14 +1729,17 @@ client.on(Events.MessageCreate, async (message) => {
             .setTitle('📚 DANH SÁCH LỆNH')
             .setColor(0x3498db)
             .addFields(
-                { name: '📊 XEM', value: '`!dangky` — Đăng ký chơi\n`!price` — Giá + tăng trưởng + dropdown giao dịch\n`!cp [MÃ]` — Chi tiết cổ phiếu\n`!profile` — Xem profile của bạn\n`!top` — Bảng xếp hạng\n`!map` — Thông tin map & đổi map', inline: false },
-                { name: '💰 GIAO DỊCH', value: '`!buy MÃ CP` — Mua cổ phiếu\n`!sell MÃ CP` — Bán cổ phiếu\n`!short MÃ CP` — Bán khống (short)\n`!cover MÃ CP` — Đóng short\n`!limit [buy/sell] MÃ GIÁ` — Lệnh giới hạn\n`!mylimits` — Xem lệnh giới hạn của bạn\n`!cancellimit ID` — Hủy lệnh giới hạn', inline: false },
-                { name: '🏦 NGÂN HÀNG & MARGIN', value: '`!bank` — Xem ngân hàng\n`!deposit SỐ` — Gửi tiết kiệm (lãi 2%/ngày)\n`!withdraw SỐ` — Rút tiết kiệm\n`!transfer @user SỐ` — Chuyển tiền\n`!borrow SỐ` — Vay margin (lãi 0.5%/ngày)\n`!repay SỐ` — Trả margin', inline: false },
-                { name: '🎮 VUI VẺ', value: '`!daily` — Thưởng hàng ngày\n`!dice SỐ` — Xúc xắc\n`!slot SỐ` — Máy đánh bạc\n`!history` — Lịch sử\n`!compare MÃ1 MÃ2` — So sánh 2 cổ phiếu\n`!achievements` — Xem thành tích', inline: false },
-                { name: '🔔 CẢNH BÁO', value: '`!alert MÃ GIÁ` — Đặt cảnh báo giá\n`!myalerts` — Xem cảnh báo', inline: false },
-                { name: '👑 ADMIN', value: '`!admin` — Panel quản trị', inline: false }
+                { name: '🆕 BẮT ĐẦU', value: '`!dangky` — Đăng ký chơi (Map 1)\n`!huongdan` — Hướng dẫn cơ bản cho người mới\n`!dangnhap`/`!dn` — Đăng nhập sàn của map hiện tại', inline: false },
+                { name: '📊 XEM', value: '`!price`/`!gia`/`!p` — Giá + dropdown giao dịch\n`!cp`/`!xem MÃ` — Chi tiết 1 mã (biểu đồ 30 tick)\n`!chart`/`!bieudo MÃ1 MÃ2...` — So biểu đồ nhiều mã\n`!compare`/`!sosanh MÃ1 MÃ2` — So sánh 2 mã\n`!profile`/`!me` — Hồ sơ của bạn\n`!top`/`!rank` — Bảng xếp hạng\n`!map`/`!san` — Thông tin & đổi map', inline: false },
+                { name: '💰 GIAO DỊCH CỔ PHIẾU', value: '`!buy`/`!mua MÃ SL` — Mua\n`!sell`/`!ban MÃ SL` — Bán\n`!short`/`!khong MÃ SL` — Bán khống\n`!cover`/`!dong MÃ SL` — Đóng short\n`!limit`/`!gh [buy/sell] MÃ GIÁ SL` — Lệnh giới hạn\n`!mylimits`/`!lghan` — Lệnh giới hạn của bạn\n`!cancellimit`/`!huygh ID` — Hủy lệnh giới hạn', inline: false },
+                { name: '🏠 BẤT ĐỘNG SẢN', value: '`!bds` — Xem danh sách BĐS của map\n`!bds mua MÃ` — Mua bất động sản\n`!bds ban MÃ_SỞ_HỮU` — Bán lại (phí 3%)\n`!bds tui` — BĐS bạn đang sở hữu', inline: false },
+                { name: '🏦 NGÂN HÀNG & MARGIN', value: '`!bank`/`!nh` — Xem ngân hàng\n`!deposit`/`!tkiem SỐ NGÀY` — Gửi tiết kiệm (lãi 2%/ngày)\n`!withdraw`/`!rut SỐ` — Rút tiết kiệm\n`!transfer`/`!ck @user SỐ` — Chuyển tiền (phí 2%)\n`!borrow`/`!vay SỐ NGÀY` — Vay margin\n`!repay`/`!travay SỐ` — Trả margin', inline: false },
+                { name: '🎮 VUI VẺ', value: '`!daily`/`!dd` — Thưởng hàng ngày\n`!dice`/`!xx SỐ` — Xúc xắc\n`!slot`/`!quay SỐ` — Máy đánh bạc\n`!history`/`!lichsu` — Lịch sử giao dịch\n`!achievements`/`!thanhtich` — Thành tích', inline: false },
+                { name: '🔔 CẢNH BÁO GIÁ', value: '`!alert`/`!cb MÃ GIÁ` — Đặt cảnh báo\n`!myalerts`/`!cbtoi` — Xem cảnh báo của bạn', inline: false },
+                { name: '💳 TÍN NHIỆM & DANH HIỆU', value: '`!credit`/`!tinnhiem` — Điểm tín nhiệm\n`!badges`/`!danhieu` — Danh hiệu Nhà Đầu Tư\n`!stats [@user]`/`!thongke` — Hồ sơ thống kê', inline: false },
+                { name: '👑 ADMIN', value: '`!admin` — Panel quản trị (chỉ admin)', inline: false }
             )
-            .setFooter({ text: 'Đóng phiên 23:00 | Mở phiên 06:00 mỗi ngày' });
+            .setFooter({ text: 'Đóng phiên 23:00 | Mở phiên 06:00 mỗi ngày | !help2 để xem thêm lệnh nâng cao' });
         return message.reply({ embeds: [embed] });
     }
 
@@ -1387,7 +1768,7 @@ Chỉ có thể đăng ký lại nếu admin reset tài khoản.`);
         ] });
     }
 
-    if (command === 'dangnhap') {
+    if (['dangnhap', 'dn'].includes(command)) {
         const data = loadData();
         const userData = ensureUserData(data, uid);
         const mapStage = userData.mapStage || 1;
@@ -1412,7 +1793,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== PRICE =====
-    if (['price', 'stocks', 'p'].includes(command)) {
+    if (['price', 'stocks', 'p', 'gia'].includes(command)) {
         const data = loadData();
         const userData = ensureUserData(data, uid);
         saveData(data);
@@ -1428,7 +1809,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== MAP =====
-    if (command === 'map') {
+    if (['map', 'san'].includes(command)) {
         const { data, userData } = getUserData(uid);
         const mapStage = userData.mapStage || 1;
         const targetArg = args[0]?.toLowerCase();
@@ -1469,18 +1850,26 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
                 ? !isRegistered(userData, 2)
                 : targetStage === 3 ? !isRegistered(userData, 3) : false;
 
-            if (isFirstVisit && targetStage === 2 && mapStage === 1) {
+            // ⚠️ FIX: quy đổi tiền KHÔNG phụ thuộc vào việc bạn đang đứng ở map nào
+            // (trước đây chỉ quy đổi nếu mapStage hiện tại == map liền trước, nên nếu
+            // bạn đã từng ghé Map 2 rồi quay về Map 1 và gõ thẳng !map 3, tiền sẽ KHÔNG
+            // được quy đổi vì check `mapStage === 2` sai). Giờ luôn quy đổi từ ví map
+            // liền trước (CAD cho Map3, VND cho Map2) bất kể đang ở map nào.
+            if (isFirstVisit && targetStage === 2) {
                 // Lần đầu lên Map 2: 1.000.000 VND = 1 CAD
                 const vnd = userData.balanceVND || 0;
                 const cad = Math.floor(vnd / 1_000_000);
-                userData.balanceCAD = cad;
-                conversionNote = `\n💱 Quy đổi lần đầu: **${formatMoney(vnd)} ₫** → **C$${formatMoney(cad)}** (1M VND = 1 CAD)\n⚠️ Tiền VND đã quy đổi, không hoàn lại khi quay về Map 1.`;
-            } else if (isFirstVisit && targetStage === 3 && mapStage === 2) {
+                userData.balanceCAD = (userData.balanceCAD || 0) + cad;
+                conversionNote = `\n💱 Quy đổi lần đầu: **${formatMoney(vnd)} ₫** → **C$${formatMoney(cad)}** (1.000.000 VND = 1 CAD)\n⚠️ Tiền VND đã quy đổi, không hoàn lại khi quay về Map 1.`;
+            } else if (isFirstVisit && targetStage === 3) {
                 // Lần đầu lên Map 3: 1.000.000 CAD = 1 USD
                 const cad = userData.balanceCAD || 0;
                 const usd = Math.floor(cad / 1_000_000);
-                userData.balanceUSD = usd;
-                conversionNote = `\n💱 Quy đổi lần đầu: **C$${formatMoney(cad)}** → **$${formatMoney(usd)}** (1M CAD = 1 USD)\n⚠️ Tiền CAD đã quy đổi, không hoàn lại khi quay về Map 2.`;
+                userData.balanceUSD = (userData.balanceUSD || 0) + usd;
+                conversionNote = `\n💱 Quy đổi lần đầu: **C$${formatMoney(cad)}** → **$${formatMoney(usd)}** (1.000.000 CAD = 1 USD)\n⚠️ Tiền CAD đã quy đổi, không hoàn lại khi quay về Map 2.`;
+                if (usd === 0) {
+                    conversionNote += `\n⚠️ Bạn quy đổi ra **0 USD** vì CAD chưa đủ 1.000.000. Hãy tích lũy thêm CAD trước khi qua Map 3 để không bị mất trắng vốn quy đổi.`;
+                }
             } else if (!isFirstVisit) {
                 // Quay lại map cũ hoặc map đã mở → dùng ví cũ, không đổi tiền
                 conversionNote = `\n🔄 Quay lại Map ${targetStage} — dùng ví **${getCurrencyUnit(targetStage)}** đã lưu.`;
@@ -1527,7 +1916,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== CP =====
-    if (command === 'cp') {
+    if (['cp', 'xem'].includes(command)) {
         const code = args[0]?.toUpperCase();
         const { data, userData } = getUserData(uid);
         if (!code || !STOCKS[code]) return message.reply(`❌ Mã không tồn tại! Các mã: ${Object.keys(getMapStocks(userData.mapStage || 1)).join(', ')}`);
@@ -1552,8 +1941,44 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
         return message.reply({ embeds: [createTopEmbed(loadData(), message.guild)] });
     }
 
+    // ===== CHART (biểu đồ 30 tick nhiều mã) =====
+    if (['chart', 'bieudo'].includes(command)) {
+        const { data, userData } = getUserData(uid);
+        const codes = args.map(a => a.toUpperCase()).filter(c => STOCKS[c]);
+        if (codes.length === 0) return message.reply('❌ `!chart MÃ1 MÃ2 ...` — Ví dụ: `!chart TECH FOOD GOLD` (tối đa 6 mã)');
+        const notAllowed = codes.filter(c => !isStockAllowedForUser(c, userData));
+        if (notAllowed.length > 0) return message.reply(`❌ Mã không thuộc Map hiện tại của bạn: ${notAllowed.join(', ')}`);
+        const targets = codes.slice(0, 6);
+
+        const SPARKS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+        let text = '';
+        for (const code of targets) {
+            const info = STOCKS[code];
+            const price = data.stockPrices[code];
+            const open = data.dailyOpen[code] || price;
+            const pct = (((price - open) / open) * 100).toFixed(2);
+            const history = (data.stockHistory[code] || []).slice(-30);
+            const prices = history.map(h => h.p);
+            let chart = '*Chưa đủ dữ liệu*';
+            if (prices.length >= 2) {
+                const mn = Math.min(...prices), mx = Math.max(...prices);
+                const range = mx - mn || 1;
+                chart = prices.map(p => SPARKS[Math.round(((p - mn) / range) * (SPARKS.length - 1))]).join('');
+            }
+            text += `${info.emoji} **${code}** — ${fmtCur(price, userData.mapStage || 1)} (${pct >= 0 ? '+' : ''}${pct}%)\n\`${chart}\`\n\n`;
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`📊 BIỂU ĐỒ 30 TICK — ${targets.join(', ')}`)
+            .setColor(0x3498db)
+            .setDescription(text)
+            .setTimestamp()
+            .setFooter({ text: 'Mỗi tick ≈ 3 giây | Dùng !cp MÃ để xem chi tiết 1 mã' });
+        return message.reply({ embeds: [embed] });
+    }
+
     // ===== COMPARE =====
-    if (command === 'compare') {
+    if (['compare', 'sosanh'].includes(command)) {
         const { data, userData } = getUserData(uid);
         const c1 = args[0]?.toUpperCase(), c2 = args[1]?.toUpperCase();
         if (!c1 || !c2 || !STOCKS[c1] || !STOCKS[c2]) return message.reply('❌ `!compare MÃ1 MÃ2`');
@@ -1574,7 +1999,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== ACHIEVEMENTS =====
-    if (command === 'achievements') {
+    if (['achievements', 'thanhtich'].includes(command)) {
         const { userData } = getUserData(uid);
         let text = '';
         for (const a of ACHIEVEMENTS) {
@@ -1589,8 +2014,152 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
         return message.reply({ embeds: [embed] });
     }
 
+    // ===== BẤT ĐỘNG SẢN =====
+    if (['bds', 'realestate'].includes(command)) {
+        const sub = args[0]?.toLowerCase();
+        const { data, userData } = getUserData(uid);
+        const mapStage = userData.mapStage || 1;
+        const list = getRealEstateList(mapStage);
+
+        // !bds  hoặc  !bds list  → xem danh sách BĐS của map hiện tại
+        if (!sub || sub === 'list' || sub === 'xem') {
+            let text = '';
+            for (const p of list) {
+                const price = getRealEstateCurrentPrice(data, mapStage, p.id);
+                text += `${p.emoji} **${p.id}** — ${p.name}\n┗ Giá: ${fmtCur(price, mapStage)} | Tăng giá: ~${(p.dailyGrowth * 100).toFixed(2)}%/ngày\n\n`;
+            }
+            saveData(data);
+            const embed = new EmbedBuilder()
+                .setTitle(`🏠 BẤT ĐỘNG SẢN — MAP ${mapStage}`)
+                .setColor(0x8e44ad)
+                .setDescription(text || '*Map này chưa có bất động sản*')
+                .setFooter({ text: '!bds mua MÃ | !bds ban MÃ_SỞ_HỮU | !bds tui (xem BĐS của bạn)' });
+            return message.reply({ embeds: [embed] });
+        }
+
+        // !bds tui  → xem BĐS đang sở hữu
+        if (sub === 'tui' || sub === 'my' || sub === 'inventory') {
+            const owned = (userData.properties || []).filter(p => p.mapStage === mapStage);
+            if (owned.length === 0) return message.reply('🏠 Bạn chưa sở hữu bất động sản nào ở map này. Dùng `!bds mua MÃ` để mua!');
+            let text = '';
+            let totalVal = 0;
+            for (const prop of owned) {
+                const info = getRealEstateInfo(mapStage, prop.typeId);
+                const curPrice = getRealEstateCurrentPrice(data, mapStage, prop.typeId);
+                const pnl = curPrice - prop.boughtPrice;
+                totalVal += curPrice;
+                text += `${info?.emoji || '🏠'} **${prop.id}** (${info?.name || prop.typeId})\n┗ Mua: ${fmtCur(prop.boughtPrice, mapStage)} → Hiện tại: ${fmtCur(curPrice, mapStage)} (${pnl >= 0 ? '+' : ''}${fmtCur(pnl, mapStage)})\n\n`;
+            }
+            return message.reply({ embeds: [new EmbedBuilder()
+                .setTitle('🏠 BẤT ĐỘNG SẢN CỦA BẠN')
+                .setColor(0x8e44ad)
+                .setDescription(text)
+                .setFooter({ text: `Tổng giá trị hiện tại: ${fmtCur(totalVal, mapStage)}` })
+            ] });
+        }
+
+        // !bds mua MÃ  → mua bất động sản mới
+        if (sub === 'mua' || sub === 'buy') {
+            if (!isRegistered(userData, mapStage)) return message.reply('❌ Bạn cần đăng ký trước bằng `!dangky`/`!dangnhap` trước khi mua bất động sản.');
+            if (!data.sessionOpen) return message.reply('❌ Phiên giao dịch đang đóng! Chờ đến 06:00 sáng.');
+            const typeId = args[1]?.toUpperCase();
+            const info = getRealEstateInfo(mapStage, typeId);
+            if (!info) return message.reply(`❌ Không tìm thấy mã BĐS này ở Map ${mapStage}! Dùng \`!bds\` để xem danh sách.`);
+            const price = getRealEstateCurrentPrice(data, mapStage, typeId);
+            if (userData.balance < price) return message.reply(`❌ Không đủ tiền! Cần ${fmtCur(price, mapStage)}, bạn có ${fmtCur(userData.balance, mapStage)}`);
+
+            mutWallet(userData, b => b - price);
+            userData.balance = getWallet(userData);
+            recordMoneyHistory(userData, -price, `buy real estate ${typeId}`);
+            const propId = `${typeId}-${randomDigits(4)}`;
+            userData.properties = userData.properties || [];
+            userData.properties.push({ id: propId, typeId, boughtAt: new Date().toISOString(), boughtPrice: price, mapStage });
+            addExp(userData, 30);
+            warnSuspiciousAssets(data, message.guild, uid, userData, `buy real estate ${typeId} (${price})`);
+            saveData(data);
+            return message.reply({ embeds: [new EmbedBuilder()
+                .setTitle('✅ MUA BẤT ĐỘNG SẢN THÀNH CÔNG!')
+                .setColor(0x8e44ad)
+                .setDescription(`${message.author} đã mua **${info.emoji} ${info.name}**`)
+                .addFields(
+                    { name: 'Mã sở hữu', value: `\`${propId}\``, inline: true },
+                    { name: 'Giá mua', value: fmtCur(price, mapStage), inline: true },
+                    { name: 'Số dư còn lại', value: fmtCur(userData.balance, mapStage), inline: true }
+                )
+                .setFooter({ text: 'Giá BĐS tăng dần theo thời gian — dùng !bds ban để bán lại khi cần' })
+            ] });
+        }
+
+        // !bds ban MÃ_SỞ_HỮU  → bán lại bất động sản đang sở hữu
+        if (sub === 'ban' || sub === 'sell') {
+            const propId = args[1]?.toUpperCase();
+            if (!propId) return message.reply('❌ `!bds ban MÃ_SỞ_HỮU` — dùng `!bds tui` để xem mã sở hữu của bạn.');
+            const idx = (userData.properties || []).findIndex(p => p.id === propId);
+            if (idx === -1) return message.reply('❌ Bạn không sở hữu bất động sản với mã này!');
+            const prop = userData.properties[idx];
+            const info = getRealEstateInfo(prop.mapStage, prop.typeId);
+            const curPrice = getRealEstateCurrentPrice(data, prop.mapStage, prop.typeId);
+            // Phí giao dịch BĐS 3% (mô phỏng phí sang tên, môi giới)
+            const fee = Math.ceil(curPrice * 0.03);
+            const received = curPrice - fee;
+            const pnl = received - prop.boughtPrice;
+
+            mutWallet(userData, b => b + received);
+            userData.balance = getWallet(userData);
+            recordMoneyHistory(userData, received, `sell real estate ${prop.typeId} (phí ${fee})`);
+            userData.properties.splice(idx, 1);
+            saveData(data);
+            return message.reply({ embeds: [new EmbedBuilder()
+                .setTitle('🔴 BÁN BẤT ĐỘNG SẢN THÀNH CÔNG!')
+                .setColor(pnl >= 0 ? 0x00ff88 : 0xff4444)
+                .setDescription(`${message.author} đã bán **${info?.emoji || '🏠'} ${info?.name || prop.typeId}**`)
+                .addFields(
+                    { name: 'Giá bán (đã trừ phí 3%)', value: fmtCur(received, prop.mapStage), inline: true },
+                    { name: pnl >= 0 ? 'Lãi' : 'Lỗ', value: `${pnl >= 0 ? '+' : ''}${fmtCur(pnl, prop.mapStage)}`, inline: true },
+                    { name: 'Số dư mới', value: fmtCur(userData.balance, prop.mapStage), inline: true }
+                )
+            ] });
+        }
+
+        return message.reply('❌ Lệnh không hợp lệ. Dùng: `!bds`, `!bds mua MÃ`, `!bds ban MÃ_SỞ_HỮU`, `!bds tui`');
+    }
+
+    // ===== HƯỚNG DẪN CHO NGƯỜI MỚI =====
+    if (['huongdan', 'guide', 'huongdancanban'].includes(command)) {
+        const page = args[0]?.toLowerCase();
+
+        if (page === '2') {
+            const embed = new EmbedBuilder()
+                .setTitle('📚 HƯỚNG DẪN CHƠI (2/2) — Khái niệm & rủi ro')
+                .setColor(0x2980b9)
+                .addFields(
+                    { name: '📈 Giá cổ phiếu lên xuống thế nào?', value: 'Giá thay đổi liên tục mỗi vài giây, có xu hướng ngắn hạn (tăng/giảm theo "trend"), nhiễu ngẫu nhiên, và đôi khi có "spike" mạnh do tin tức. Đừng hoảng nếu giá đỏ vài phút — đó là bình thường.', inline: false },
+                    { name: '💰 Lãi/lỗ tính sao?', value: 'Lãi = (Giá bán − Giá mua trung bình) × Số lượng. Bot tự tính `avgCost` khi bạn mua thêm cùng mã ở giá khác nhau.', inline: false },
+                    { name: '📉 Short là gì? (rủi ro cao)', value: '`!short` là "cược giá sẽ giảm". Bạn ký quỹ 50% giá trị, lãi khi giá xuống, lỗ khi giá lên. Mới chơi nên **tránh short** cho đến khi hiểu rõ.', inline: false },
+                    { name: '🏦 Gửi tiết kiệm vs Vay margin', value: '`!deposit` (hay `!tkiem`): gửi tiền ăn lãi an toàn, rút trước hạn bị phạt 50%.\n`!borrow` (hay `!vay`): vay tiền để có thêm vốn chơi, nhưng phải trả đúng hạn — trễ hạn có thể bị **phá sản** (mất hết tài sản)!', inline: false },
+                    { name: '⚠️ Quy tắc an toàn', value: '• Không bao giờ vay vượt quá khả năng trả.\n• Đa dạng hóa: không "all-in" 1 mã.\n• Theo dõi `!cp MÃ` để xem biểu đồ 30 tick trước khi mua.\n• Đọc kỹ cảnh báo khi chuyển map — tiền quy đổi **không hoàn lại**.', inline: false }
+                )
+                .setFooter({ text: 'Dùng !huongdan 1 để xem lại trang trước | !help để xem toàn bộ lệnh' });
+            return message.reply({ embeds: [embed] });
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('📚 HƯỚNG DẪN CHƠI CHỨNG KHOÁN (1/2) — Dành cho người mới')
+            .setColor(0x2980b9)
+            .setDescription('Chào mừng bạn đến với sàn giao dịch ảo! Đây là hướng dẫn cơ bản để bắt đầu.')
+            .addFields(
+                { name: '1️⃣ Bước đầu tiên', value: '`!dangky` — đăng ký tài khoản, nhận **5.000.000 xu** khởi đầu (Map 1, đơn vị VND).', inline: false },
+                { name: '2️⃣ Xem giá thị trường', value: '`!price` (hay `!gia`) — xem giá tất cả cổ phiếu + dropdown mua/bán nhanh.\n`!cp MÃ` — xem chi tiết 1 mã: giá, biểu đồ, ai đang ôm nhiều nhất.', inline: false },
+                { name: '3️⃣ Mua / Bán cổ phiếu', value: '`!buy MÃ SỐ_LƯỢNG` (hay `!mua`) — mua cổ phiếu.\n`!sell MÃ SỐ_LƯỢNG` (hay `!ban`) — bán cổ phiếu đang có.\nVí dụ: `!mua TECH 10` mua 10 cổ phiếu VinTech.', inline: false },
+                { name: '4️⃣ Theo dõi tài sản', value: '`!profile` (hay `!hoso`) — xem số dư, danh mục, level, thành tích.\n`!top` — bảng xếp hạng người giàu nhất server.', inline: false },
+                { name: '5️⃣ Mẹo nhỏ', value: '• Mua khi giá đang thấp hơn giá mở cửa (`!price` hiện % thay đổi).\n• Đừng dồn hết tiền vào 1 mã — rủi ro cao.\n• Dùng `!alert MÃ GIÁ` để được báo khi giá đạt mức mong muốn.', inline: false }
+            )
+            .setFooter({ text: 'Gõ !huongdan 2 để xem tiếp phần khái niệm nâng cao & rủi ro' });
+        return message.reply({ embeds: [embed] });
+    }
+
     // ===== BUY =====
-    if (command === 'buy') {
+    if (['buy', 'mua'].includes(command)) {
         const code = args[0]?.toUpperCase(), qty = parseInt(args[1]);
         const { data, userData } = getUserData(uid);
         if (!isRegistered(userData, userData.mapStage || 1)) return message.reply('❌ Bạn cần đăng ký trước bằng `!dangky` (Map 1) hoặc `!dangnhap` (Map 2) trước khi giao dịch.');
@@ -1610,6 +2179,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
         userData.totalTrades++;
         userData.dailyProfit -= total;
         userData.totalInvested = (userData.totalInvested || 0) + total;
+        if (total > (userData.maxSingleTrade || 0)) userData.maxSingleTrade = total;
         userData.tradeHistory.unshift({ type: 'buy', code, qty, price, total, t: new Date().toISOString() });
         if (userData.tradeHistory.length > 30) userData.tradeHistory.pop();
         data.totalTransactions++;
@@ -1632,7 +2202,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== SELL =====
-    if (command === 'sell') {
+    if (['sell', 'ban'].includes(command)) {
         const code = args[0]?.toUpperCase(), qty = parseInt(args[1]);
         if (!code || !STOCKS[code]) return message.reply('❌ Mã không tồn tại!');
         const { data, userData } = getUserData(uid);
@@ -1675,7 +2245,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== SHORT =====
-    if (command === 'short') {
+    if (['short', 'khong'].includes(command)) {
         const code = args[0]?.toUpperCase(), qty = parseInt(args[1]);
         const { data, userData } = getUserData(uid);
         if (isTradeBanned(userData)) return message.reply(`❌ Bạn đang bị cấm giao dịch đến ${new Date(userData.tradeBanUntil).toLocaleString('vi-VN')}.`);
@@ -1698,7 +2268,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== COVER =====
-    if (command === 'cover') {
+    if (['cover', 'dong'].includes(command)) {
         const code = args[0]?.toUpperCase(), qty = parseInt(args[1]);
         if (!code || !STOCKS[code]) return message.reply('❌ Mã không tồn tại!');
         if (!qty || qty <= 0) return message.reply('❌ Số lượng phải > 0!');
@@ -1728,7 +2298,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== LIMIT ORDER =====
-    if (command === 'limit') {
+    if (['limit', 'gh'].includes(command)) {
         const action = args[0]?.toLowerCase();
         const code = args[1]?.toUpperCase();
         const targetPrice = parseFloat(args[2]);
@@ -1756,7 +2326,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== MY LIMITS =====
-    if (command === 'mylimits') {
+    if (['mylimits', 'lghan'].includes(command)) {
         const data = loadData();
         const orders = (data.limitOrders || []).filter(o => o.userId === uid);
         if (orders.length === 0) return message.reply('❌ Bạn không có lệnh giới hạn nào đang chờ!');
@@ -1768,7 +2338,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== CANCEL LIMIT =====
-    if (command === 'cancellimit') {
+    if (['cancellimit', 'huygh'].includes(command)) {
         const orderId = args[0];
         if (!orderId) return message.reply('❌ `!cancellimit ID`');
         const data = loadData();
@@ -1780,7 +2350,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== ALERT =====
-    if (command === 'alert') {
+    if (['alert', 'cb'].includes(command)) {
         const code = args[0]?.toUpperCase();
         const targetPrice = parseFloat(args[1]);
         if (!code || !STOCKS[code] || isNaN(targetPrice)) return message.reply('❌ `!alert MÃ GIÁ`\nVí dụ: `!alert TECH 200000`');
@@ -1795,7 +2365,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== MY ALERTS =====
-    if (command === 'myalerts') {
+    if (['myalerts', 'cbtoi'].includes(command)) {
         const data = loadData();
         const alerts = Object.entries(data.priceAlerts || {}).filter(([, a]) => a.userId === uid);
         if (alerts.length === 0) return message.reply('❌ Bạn chưa có cảnh báo nào!');
@@ -1807,7 +2377,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== DAILY =====
-    if (command === 'daily') {
+    if (['daily', 'dd'].includes(command)) {
         const { data, userData } = getUserData(uid);
         const now = new Date();
         if (userData.lastDaily) {
@@ -1831,7 +2401,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== BANK =====
-    if (command === 'bank') {
+    if (['bank', 'nh'].includes(command)) {
         const { data, userData } = getUserData(uid);
         const bank = userData.bank;
         let interestNote = '';
@@ -1854,7 +2424,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== DEPOSIT =====
-    if (command === 'deposit') {
+    if (['deposit', 'tkiem'].includes(command)) {
         const amount = parseInt(args[0]);
         const termDays = parseInt(args[1]);
         if (!amount || amount <= 0 || !termDays || termDays <= 0) return message.reply('❌ `!deposit Số Ngày`\nVí dụ: `!deposit 1000000 7`');
@@ -1880,7 +2450,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== WITHDRAW =====
-    if (command === 'withdraw') {
+    if (['withdraw', 'rut'].includes(command)) {
         const { data, userData } = getUserData(uid);
         const amount = parseInt(args[0]);
         const withdraw = amount ? Math.min(amount, userData.bank.savings) : userData.bank.savings;
@@ -1912,7 +2482,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== BORROW =====
-    if (command === 'borrow') {
+    if (['borrow', 'vay'].includes(command)) {
         const amount = parseInt(args[0]);
         const termDays = parseInt(args[1]);
         if (!amount || amount <= 0 || !termDays || termDays <= 0) return message.reply('❌ `!borrow Số Ngày`\nVí dụ: `!borrow 1000000 7`');
@@ -1942,7 +2512,7 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
     }
 
     // ===== REPAY =====
-    if (command === 'repay') {
+    if (['repay', 'travay'].includes(command)) {
         const { data, userData } = getUserData(uid);
         const amount = parseInt(args[0]);
         const repay = amount ? Math.min(amount, userData.margin.borrowed || 0) : (userData.margin.borrowed || 0);
@@ -1950,35 +2520,75 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
         if (userData.balance < repay) return message.reply(`❌ Không đủ tiền! Cần ${formatMoney(repay)} xu`);
         userData.balance -= repay;
         recordMoneyHistory(userData, -repay, 'repay margin');
+        const wasDue = userData.margin.dueAt && new Date(userData.margin.dueAt).getTime() > Date.now();
         userData.margin.borrowed = (userData.margin.borrowed || 0) - repay;
-        if (userData.margin.borrowed <= 0) { userData.margin.borrowed = 0; userData.margin.borrowedAt = null; userData.margin.dueAt = null; userData.margin.termDays = 0; }
-        else userData.margin.borrowedAt = new Date().toISOString();
+        let creditMsg = '';
+        if (userData.margin.borrowed <= 0) {
+            userData.margin.borrowed = 0; userData.margin.borrowedAt = null; userData.margin.dueAt = null; userData.margin.termDays = 0;
+            // Trả hết nợ đúng hạn: +10 điểm tín nhiệm
+            if (wasDue) {
+                addCreditScore(userData, 10, 'Trả hết nợ đúng hạn');
+                userData.timesRepaidOnTime = (userData.timesRepaidOnTime || 0) + 1;
+                creditMsg = `\n💳 Điểm tín nhiệm: **+10** → ${userData.creditScore}`;
+            }
+        } else userData.margin.borrowedAt = new Date().toISOString();
+        const newAchs = checkAchievements(userData, data, { repaidOnTime: wasDue && userData.margin.borrowed <= 0 });
+        const newBadges = checkInvestorBadges(userData, data);
         saveData(data);
-        return message.reply(`✅ Đã trả **${formatMoney(repay)} xu**. Dư nợ: ${formatMoney(userData.margin.borrowed)} xu`);
+        let reply = `✅ Đã trả **${formatMoney(repay)} xu**. Dư nợ: ${formatMoney(userData.margin.borrowed)} xu${creditMsg}`;
+        if (newAchs.length > 0) reply += `\n🏅 Thành tích mới: ${newAchs.map(id => ACHIEVEMENTS.find(a => a.id===id)?.name).join(', ')}`;
+        if (newBadges.length > 0) reply += `\n🏷️ Danh hiệu mới: ${newBadges.map(b => b.name).join(', ')}`;
+        return message.reply(reply);
     }
 
     // ===== TRANSFER =====
-    if (command === 'transfer') {
+    if (['transfer', 'chuyentien', 'ck'].includes(command)) {
         const target = message.mentions.users.first();
         const amount = parseInt(args[1]);
-        if (!target) return message.reply('❌ `!transfer @user Số`');
+        if (!target) return message.reply('❌ `!transfer @user Số` (hoặc `!ck @user Số`)');
         if (!amount || amount <= 0) return message.reply('❌ Số tiền phải > 0!');
         if (target.id === uid) return message.reply('❌ Không thể chuyển cho chính mình!');
+        if (target.bot) return message.reply('❌ Không thể chuyển tiền cho bot!');
         const data = loadData();
         const userData = ensureUserData(data, uid);
         const tData = ensureUserData(data, target.id);
         if (userData.balance < amount) return message.reply('❌ Không đủ tiền!');
+
+        // ── Phí chuyển khoản nhỏ (2%) để hạn chế động lực rửa tiền qua acc phụ ──
+        const fee = Math.ceil(amount * 0.02);
+        const received = amount - fee;
+
+        // ── Giới hạn số lần chuyển/ngày để tránh chia nhỏ giao dịch né cảnh báo ──
+        const today = new Date().toDateString();
+        if (!userData.transferDayKey || userData.transferDayKey !== today) {
+            userData.transferDayKey = today;
+            userData.transferCountToday = 0;
+        }
+        const DAILY_TRANSFER_LIMIT = 20;
+        if ((userData.transferCountToday || 0) >= DAILY_TRANSFER_LIMIT) {
+            return message.reply(`❌ Bạn đã chuyển tiền quá **${DAILY_TRANSFER_LIMIT} lần** hôm nay. Vui lòng thử lại vào ngày mai.`);
+        }
+
+        // ── Phát hiện chuyển qua lại vòng tròn (khả năng rửa tiền giữa 2 acc) ──
+        const isLoop = recordTransferAndCheckLoop(data, uid, target.id, amount);
+
         userData.balance -= amount;
+        userData.transferCountToday = (userData.transferCountToday || 0) + 1;
         recordMoneyHistory(userData, -amount, `transfer to ${target.id}`);
-        tData.balance += amount;
-        recordMoneyHistory(tData, amount, `transfer from ${uid}`);
+        tData.balance += received;
+        recordMoneyHistory(tData, received, `transfer from ${uid} (phí ${fee})`);
         warnSuspiciousAssets(data, message.guild, target.id, tData, `transfer from ${uid}`);
+
+        if (isLoop) {
+            flagCheatAlert(data, message.guild, uid, userData.exchangeId, `Chuyển tiền qua lại bất thường với <@${target.id}> trong thời gian ngắn (nghi ngờ rửa tiền/twink acc)`);
+        }
+
         saveData(data);
-        return message.reply(`✅ Đã chuyển **${formatMoney(amount)} xu** cho ${target}. Số dư: ${formatMoney(userData.balance)} xu`);
+        return message.reply(`✅ Đã chuyển **${formatMoney(amount)} xu** cho ${target} (phí 2%: ${formatMoney(fee)} xu, người nhận được ${formatMoney(received)} xu). Số dư: ${formatMoney(userData.balance)} xu`);
     }
 
     // ===== DICE =====
-    if (command === 'dice') {
+    if (['dice', 'xx'].includes(command)) {
         const bet = parseInt(args[0]);
         if (!bet || bet <= 0) return message.reply('❌ `!dice Số`');
         const { data, userData } = getUserData(uid);
@@ -1986,19 +2596,26 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
         if (userData.balance < bet) return message.reply('❌ Không đủ tiền!');
         const roll = Math.floor(Math.random() * 6) + 1;
         const win = roll >= 4;
-        if (win) userData.balance += bet; else userData.balance -= bet;
+        if (win) { userData.balance += bet; userData.diceWins = (userData.diceWins||0)+1; }
+        else { userData.balance -= bet; userData.diceLosses = (userData.diceLosses||0)+1; }
+        userData.dicePlays = (userData.dicePlays||0)+1;
+        const newAchs = checkAchievements(userData, data, {});
+        const newBadges = checkInvestorBadges(userData, data);
         saveData(data);
-        return message.reply({ embeds: [new EmbedBuilder().setTitle(`🎲 ${roll} — ${win ? 'THẮNG!' : 'THUA!'}`)
-                .setColor(win ? 0x00ff88 : 0xff4444)
-                .addFields(
-                    { name: 'Cược', value: `${formatMoney(bet)} xu`, inline: true },
-                    { name: win ? 'Nhận' : 'Mất', value: `${formatMoney(bet)} xu`, inline: true },
-                    { name: 'Số dư', value: `${formatMoney(userData.balance)} xu`, inline: true }
-                )] });
+        const embed = new EmbedBuilder().setTitle(`🎲 ${roll} — ${win ? 'THẮNG!' : 'THUA!'}`)
+            .setColor(win ? 0x00ff88 : 0xff4444)
+            .addFields(
+                { name: 'Cược', value: `${formatMoney(bet)} xu`, inline: true },
+                { name: win ? 'Nhận' : 'Mất', value: `${formatMoney(bet)} xu`, inline: true },
+                { name: 'Số dư', value: `${formatMoney(userData.balance)} xu`, inline: true }
+            );
+        if (newAchs.length > 0) embed.addFields({ name: '🏅 Thành tích mới!', value: newAchs.map(id => { const a = ACHIEVEMENTS.find(x => x.id === id); return `${a?.emoji} **${a?.name}**`; }).join('\n') });
+        if (newBadges.length > 0) embed.addFields({ name: '🏷️ Danh hiệu mới!', value: newBadges.map(b => `${b.emoji} **${b.name}**`).join('\n') });
+        return message.reply({ embeds: [embed] });
     }
 
     // ===== SLOT =====
-    if (command === 'slot') {
+    if (['slot', 'quay'].includes(command)) {
         const bet = parseInt(args[0]);
         if (!bet || bet <= 0) return message.reply('❌ `!slot Số`');
         const { data, userData } = getUserData(uid);
@@ -2012,29 +2629,37 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
             win = bet * mult;
             userData.balance += win;
             txt = `JACKPOT x${mult}!`;
+            userData.slotWins = (userData.slotWins||0)+1;
         } else if (res[0] === res[1] || res[1] === res[2] || res[0] === res[2]) {
             win = Math.floor(bet * 1.5);
             userData.balance += win;
             txt = 'Thắng nhỏ x1.5';
+            userData.slotWins = (userData.slotWins||0)+1;
         } else {
             win = -bet;
             userData.balance -= bet;
             txt = 'Thua!';
+            userData.slotLosses = (userData.slotLosses||0)+1;
         }
+        userData.slotPlays = (userData.slotPlays||0)+1;
+        const newAchs = checkAchievements(userData, data, {});
+        const newBadges = checkInvestorBadges(userData, data);
         saveData(data);
-        return message.reply({
-            embeds: [new EmbedBuilder().setTitle(`🎰 ${res.join(' | ')} — ${txt}`)
-                .setColor(win > 0 ? 0xffd700 : 0xff4444)
-                .addFields(
-                    { name: 'Cược', value: `${formatMoney(bet)} xu`, inline: true },
-                    { name: win > 0 ? 'Thắng' : 'Thua', value: `${win > 0 ? '+' : ''}${formatMoney(win)} xu`, inline: true },
-                    { name: 'Số dư', value: `${formatMoney(userData.balance)} xu`, inline: true }
-                )]
-        });
+        const embed = new EmbedBuilder().setTitle(`🎰 ${res.join(' | ')} — ${txt}`)
+            .setColor(win > 0 ? 0xffd700 : 0xff4444)
+            .addFields(
+                { name: 'Cược', value: `${formatMoney(bet)} xu`, inline: true },
+                { name: win > 0 ? 'Thắng' : 'Thua', value: `${win > 0 ? '+' : ''}${formatMoney(win)} xu`, inline: true },
+                { name: 'Số dư', value: `${formatMoney(userData.balance)} xu`, inline: true },
+                { name: '📊 Slot stats', value: `${userData.slotPlays} ván | ${userData.slotWins}W / ${userData.slotLosses}L`, inline: false }
+            );
+        if (newAchs.length > 0) embed.addFields({ name: '🏅 Thành tích mới!', value: newAchs.map(id => { const a = ACHIEVEMENTS.find(x => x.id === id); return `${a?.emoji} **${a?.name}**`; }).join('\n') });
+        if (newBadges.length > 0) embed.addFields({ name: '🏷️ Danh hiệu mới!', value: newBadges.map(b => `${b.emoji} **${b.name}**`).join('\n') });
+        return message.reply({ embeds: [embed] });
     }
 
     // ===== HISTORY =====
-    if (command === 'history') {
+    if (['history', 'lichsu'].includes(command)) {
         const { userData } = getUserData(uid);
         const hist = (userData.tradeHistory || []).slice(0, 10);
         let text = hist.length === 0 ? '*Chưa có giao dịch*' : '';
@@ -2043,6 +2668,115 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
             text += `${e} **${t.type.toUpperCase()}** ${t.code} x${t.qty} — ${formatMoney(t.total)} xu\n`;
         }
         return message.reply({ embeds: [new EmbedBuilder().setTitle('📜 LỊCH SỬ GIAO DỊCH').setColor(0x9b59b6).setDescription(text)] });
+    }
+
+    // ===== CREDIT SCORE =====
+    if (['credit', 'tinnhiem'].includes(command)) {
+        const { userData } = getUserData(uid);
+        const score = userData.creditScore || 700;
+        const tier = getCreditTier(score);
+        const bar = Math.floor((score / 1000) * 20);
+        const barDisplay = '🟩'.repeat(bar) + '⬛'.repeat(20 - bar);
+        const history = (userData.creditHistory || []).slice(0, 8);
+        let histText = history.length === 0 ? '*Chưa có biến động*' : '';
+        for (const h of history) {
+            const d = h.delta >= 0 ? `+${h.delta}` : `${h.delta}`;
+            histText += `${h.delta >= 0 ? '📈' : '📉'} **${d}** điểm → ${h.score} | ${h.reason}\n`;
+        }
+        const embed = new EmbedBuilder()
+            .setTitle('💳 ĐIỂM TÍN NHIỆM')
+            .setColor(score >= 800 ? 0xffd700 : score >= 700 ? 0x00ff88 : score >= 500 ? 0xff8800 : 0xff0000)
+            .addFields(
+                { name: `${tier.emoji} Điểm hiện tại: **${score}/1000**`, value: barDisplay, inline: false },
+                { name: '🏷️ Hạng tín nhiệm', value: tier.label, inline: true },
+                { name: '💸 Hạn mức vay', value: `x${tier.loanMultiplier} tài sản ròng`, inline: true },
+                { name: '📊 Lãi suất vay', value: tier.interestDiscount >= 0 ? `Giảm ${(tier.interestDiscount*100).toFixed(0)}%` : `Tăng ${Math.abs(tier.interestDiscount*100).toFixed(0)}%`, inline: true },
+                { name: '📋 Bảng phân loại', value: '💎 850+: Khách VIP\n✅ 700+: Bình thường\n⚠️ 500+: Rủi ro\n🔴 300+: Nợ xấu\n☠️ 0+: Phá sản', inline: false },
+                { name: '📈 Lịch sử gần đây', value: histText, inline: false }
+            )
+            .setFooter({ text: 'Trả nợ đúng hạn: +10 | Bị siết nợ: -50 | Tín nhiệm cao = lãi suất thấp hơn' });
+        return message.reply({ embeds: [embed] });
+    }
+
+    // ===== INVESTOR BADGES =====
+    if (['badges', 'danhieu'].includes(command)) {
+        const { data, userData } = getUserData(uid);
+        // Cập nhật badges mới nếu có
+        const newBadges = checkInvestorBadges(userData, data);
+        if (newBadges.length > 0) saveData(data);
+
+        const owned = userData.investorBadges || [];
+        let text = '';
+        for (const badge of INVESTOR_BADGES) {
+            const has = owned.includes(badge.id);
+            text += `${has ? badge.emoji : '🔒'} **${badge.name}** ${has ? '✅' : ''}\n┗ ${badge.desc}\n`;
+        }
+        const embed = new EmbedBuilder()
+            .setTitle('🏷️ DANH HIỆU NHÀ ĐẦU TƯ')
+            .setColor(0xe67e22)
+            .setDescription(text)
+            .setFooter({ text: `Đã mở: ${owned.length}/${INVESTOR_BADGES.length} danh hiệu` });
+        return message.reply({ embeds: [embed] });
+    }
+
+    // ===== STATS (HỒ SƠ THỐNG KÊ CHI TIẾT) =====
+    if (['stats', 'thongke'].includes(command)) {
+        const target = message.mentions.users.first();
+        const targetUid = target ? target.id : uid;
+        const { data, userData } = getUserData(targetUid);
+        const targetName = target ? target.username : message.author.username;
+        const netWorth = calcNetWorth(userData, data.stockPrices);
+
+        const embed = new EmbedBuilder()
+            .setTitle(`📊 HỒ SƠ THỐNG KÊ — ${targetName}`)
+            .setColor(0x3498db)
+            .addFields(
+                { name: '💹 Giao dịch', value: [
+                    `Tổng giao dịch: **${userData.totalTrades || 0}**`,
+                    `Tổng lợi nhuận: **${formatMoney(userData.totalProfit || 0)} xu**`,
+                    `GD đơn lớn nhất: **${formatMoney(userData.maxSingleTrade || 0)} xu**`,
+                    `Tổng thuế đã nộp: **${formatMoney(userData.totalTaxPaid || 0)} xu**`,
+                ].join('\n'), inline: false },
+                { name: '🏦 Ngân hàng & Vay vốn', value: [
+                    `Lần vay tổng: **${userData.timesRepaidOnTime || 0}** lần trả đúng hạn`,
+                    `Số lần bị siết nợ: **${userData.timesLiquidated || 0}** lần`,
+                    `Điểm tín nhiệm: **${userData.creditScore || 700}/1000**`,
+                ].join('\n'), inline: false },
+                { name: '🎮 Mini Games', value: [
+                    `🎰 Slot: ${userData.slotPlays || 0} ván | Thắng: ${userData.slotWins || 0} | Thua: ${userData.slotLosses || 0}`,
+                    `🎲 Dice: ${userData.dicePlays || 0} ván | Thắng: ${userData.diceWins || 0} | Thua: ${userData.diceLosses || 0}`,
+                ].join('\n'), inline: false },
+                { name: '📅 Mốc thời gian', value: [
+                    `Tham gia: **${userData.joinedAt ? new Date(userData.joinedAt).toLocaleDateString('vi-VN') : 'N/A'}**`,
+                    `Tài sản đỉnh cao: **${formatMoney(userData.peakNetWorth || 0)} xu**`,
+                    `Tài sản hiện tại: **${formatMoney(netWorth)} xu**`,
+                    `Level hiện tại: **${userData.level}**`,
+                    `Map hiện tại: **Map ${userData.mapStage || 1}**`,
+                ].join('\n'), inline: false },
+                { name: '🏅 Thành tích', value: `${userData.achievements?.length || 0}/${ACHIEVEMENTS.length} thành tích`, inline: true },
+                { name: '🏷️ Danh hiệu', value: `${userData.investorBadges?.length || 0}/${INVESTOR_BADGES.length} danh hiệu`, inline: true },
+                { name: '🏠 Bất động sản', value: `${(userData.properties || []).length} tài sản`, inline: true },
+            )
+            .setTimestamp()
+            .setFooter({ text: 'Dùng !profile để xem tổng hợp đầy đủ' });
+        return message.reply({ embeds: [embed] });
+    }
+
+    // ===== HELP 2 =====
+    if (['help2', 'h2'].includes(command)) {
+        const embed = new EmbedBuilder()
+            .setTitle('📚 DANH SÁCH LỆNH (2/2) — Hệ thống nâng cao')
+            .setColor(0x9b59b6)
+            .addFields(
+                { name: '💳 TÍN NHIỆM & DANH HIỆU', value: '`!credit`/`!tinnhiem` — Xem điểm tín nhiệm & lịch sử\n`!badges`/`!danhieu` — Xem danh hiệu Nhà Đầu Tư\n`!stats [@user]`/`!thongke` — Hồ sơ thống kê chi tiết', inline: false },
+                { name: '⭐ HỆ THỐNG CẤP ĐỘ', value: '`Lv 10` — Mở khóa Slot 🎰\n`Lv 20` — Mở khóa Dice 🎲\n`Lv 25` + 50M VND — Đủ điều kiện sang Map 2\n`Lv 50` + 50M CAD — Đủ điều kiện sang Map 3\nEXP nhận từ giao dịch x2 ở Map 2, x3 ở Map 3', inline: false },
+                { name: '💳 ĐIỂM TÍN NHIỆM', value: '`850+` 💎 Khách VIP — Hạn mức vay x1.5\n`700+` ✅ Bình thường — Vay tiêu chuẩn\n`500+` ⚠️ Rủi ro — Hạn mức giảm, lãi cao\n`300+` 🔴 Nợ xấu — Hạn mức rất thấp\n**+10** khi trả nợ đúng hạn | **-50** khi bị siết nợ', inline: false },
+                { name: '🌍 SỰ KIỆN THỊ TRƯỜNG', value: 'Bot tự động tạo sự kiện toàn thị trường theo giờ:\n💥 Khủng hoảng kinh tế | 🚀 Bùng nổ công nghệ\n📈 Lạm phát | 🏦 Khủng hoảng ngân hàng\n⚔️ Chiến tranh thương mại | 🌿 Cách mạng xanh\nMỗi sự kiện tác động lên toàn bộ cổ phiếu trên market!', inline: false },
+                { name: '🏷️ DANH HIỆU NHÀ ĐẦU TƯ', value: '🐳 Cá Voi — Lãi 10M | 🏦 Đại Gia NH — Gửi 100M\n🎰 Con Bạc — Thua Slot 100L | 💀 Kẻ Vỡ Nợ — Bị siết\n🌈 Phù Thủy — 7+ cổ phiếu cùng lúc\n💸 Tay Chơi Lớn — GD đơn > 100M\n🦾 Bàn Tay Thép — 1000 giao dịch\n... và nhiều hơn nữa! Dùng `!badges` để xem tất cả', inline: false },
+                { name: '📊 THÀNH TÍCH MỚI', value: '👑 Vua Lợi Nhuận — Lãi 100M tích lũy\n🧠 Thiên Tài ĐT — Lãi 1 tỷ tích lũy\n🎰 Dân Chơi Máy — Slot 100 ván\n🎲 Cúc Xắc HT — Dice 50 ván\n✅ Con Nợ Đúng Hẹn — Trả nợ đúng hạn\n🌪️ Vượt Bão TT — Sống sót qua khủng hoảng', inline: false }
+            )
+            .setFooter({ text: '!help — danh sách lệnh cơ bản | !huongdan — hướng dẫn người mới' });
+        return message.reply({ embeds: [embed] });
     }
 
     // ==================== 👑 ADMIN COMMANDS ====================
@@ -2055,12 +2789,14 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
         if (!sub) {
             const sessionStatus = data.sessionOpen ? '🟢 ĐANG MỞ' : '🔴 ĐÓNG PHIÊN';
             const embed = new EmbedBuilder()
-                .setTitle('👑 ADMIN PANEL v4')
+                .setTitle('👑 ADMIN PANEL v5')
                 .setColor(0xff6600)
                 .addFields(
                     { name: '📊 Thống kê', value: `👥 Người chơi: **${Object.keys(data.users).length}**\n🔄 Giao dịch: **${data.totalTransactions}**\n📈 Phiên: **${sessionStatus}**`, inline: false },
-                    { name: '🛠️ Quản lý thị trường', value: '`!admin open` — Mở phiên\n`!admin close` — Đóng phiên\n`!admin set MÃ GIÁ` — Đặt giá\n`!admin change MÃ %` — Thay đổi %\n`!admin news MÃ` — Kích hoạt tin tức\n`!admin resetmarket` — Reset thị trường', inline: false },
-                    { name: '👥 Quản lý người dùng', value: '`!admin give @user SỐ` — Tặng tiền (FIXED)\n`!admin giveall SỐ` — Tặng tất cả người chơi\n`!admin setbalance @user SỐ` — Đặt số dư chính xác\n`!admin setlevel @user SỐ` — Đặt level người dùng\n`!admin reset @user` — Reset user\n`!admin profile @user` — Xem profile\n`!admin addadmin @user` — Thêm admin\n`!admin removeadmin @user` — Xóa admin\n`!admin listadmin` — Danh sách admin\n`!admin stats` — Thống kê', inline: false },
+                    { name: '🛠️ Quản lý thị trường', value: '`!admin open` — Mở phiên\n`!admin close` — Đóng phiên\n`!admin set MÃ GIÁ` — Đặt giá\n`!admin change MÃ %` — Thay đổi %\n`!admin news MÃ` — Kích hoạt tin tức\n`!admin resetmarket` — Reset thị trường\n`!admin boostbds MAP MÃ %` — Tăng/giảm giá BĐS', inline: false },
+                    { name: '👥 Quản lý người dùng', value: '`!admin give @user vnd/cad/usd SỐ` — Tặng tiền\n`!admin giveall vnd/cad/usd SỐ` — Tặng tất cả\n`!admin setbalance @user SỐ` — Đặt số dư\n`!admin setlevel @user SỐ` — Đặt level\n`!admin reset @user` — Reset user\n`!admin profile @user` — Xem profile\n`!admin ban @user PHÚT` — Cấm giao dịch tạm thời\n`!admin unban @user` — Bỏ cấm giao dịch', inline: false },
+                    { name: '🛡️ Chống gian lận', value: '`!admin suspicious` — Cảnh báo tài sản bất thường\n`!admin cheats` — Cảnh báo nghi gian lận (rửa tiền,...)\n`!admin source @user` — Truy nguồn tiền của 1 người\n`!admin adminlog` — Log lệnh admin gần đây', inline: false },
+                    { name: '🔑 Quyền hạn', value: '`!admin addadmin @user` — Thêm admin\n`!admin removeadmin @user` — Xóa admin\n`!admin listadmin` — Danh sách admin\n`!admin stats` — Thống kê toàn server', inline: false },
                     { name: '🎁 Quà tặng', value: '`!admin giveaway SỐ` — Tạo giveaway\n`!admin dailyall SỐ` — Thưởng hàng ngày cho tất cả', inline: false }
                 );
             return message.reply({ embeds: [embed] });
@@ -2139,6 +2875,54 @@ Dùng \`!price\`, \`!buy MÃ SỐ\` để bắt đầu giao dịch!`)
                 text += '⏱ ' + time + ' — ID: **' + entry.exchangeId + '** — Discord: `' + entry.userId + '` — ' + formatMoney(entry.netWorth) + ' xu — ' + entry.reason + '\n';
             }
             return message.reply({ embeds: [new EmbedBuilder().setTitle('⚠️ CẢNH BÁO TÀI SẢN BẤT THƯỜNG').setDescription(text).setColor(0xff0000)] });
+        }
+
+        // ===== CHEAT ALERTS (rửa tiền, spam, v.v.) =====
+        if (sub === 'cheats' || sub === 'cheat') {
+            const list = (data.cheatAlerts || []).slice(0, 10);
+            if (list.length === 0) return message.reply('ℹ️ Chưa có cảnh báo nghi gian lận nào.');
+            let text = '';
+            for (const entry of list) {
+                const time = new Date(entry.time).toLocaleString('vi-VN');
+                text += `⏱ ${time} — ID: **${entry.exchangeId}** — Discord: \`${entry.userId}\` — ${entry.reason}\n`;
+            }
+            return message.reply({ embeds: [new EmbedBuilder().setTitle('🚨 CẢNH BÁO NGHI GIAN LẬN').setDescription(text).setColor(0xff0000)] });
+        }
+
+        // ===== BAN / UNBAN (cấm giao dịch tạm thời) =====
+        if (sub === 'ban') {
+            const target = message.mentions.users.first();
+            const minutes = parseInt(args[2]);
+            if (!target || !minutes || minutes <= 0) return message.reply('❌ `!admin ban @user PHÚT`');
+            const { data: bData, userData: tData } = getUserData(target.id);
+            tData.tradeBanUntil = new Date(Date.now() + minutes * 60_000).toISOString();
+            logAdminAction(bData, uid, `ban ${target.id} for ${minutes}m`);
+            saveData(bData);
+            return message.reply(`✅ Đã cấm giao dịch ${target} trong **${minutes} phút**.`);
+        }
+        if (sub === 'unban') {
+            const target = message.mentions.users.first();
+            if (!target) return message.reply('❌ `!admin unban @user`');
+            const { data: bData, userData: tData } = getUserData(target.id);
+            tData.tradeBanUntil = null;
+            logAdminAction(bData, uid, `unban ${target.id}`);
+            saveData(bData);
+            return message.reply(`✅ Đã bỏ cấm giao dịch cho ${target}.`);
+        }
+
+        // ===== BOOST BẤT ĐỘNG SẢN =====
+        if (sub === 'boostbds') {
+            const mapNum = parseInt(args[1]);
+            const typeId = args[2]?.toUpperCase();
+            const pct = parseFloat(args[3]);
+            const info = getRealEstateInfo(mapNum, typeId);
+            if (!info || isNaN(pct)) return message.reply('❌ `!admin boostbds MAP MÃ %`\nVí dụ: `!admin boostbds 1 NHAPHO 15` (tăng 15%)');
+            getRealEstateCurrentPrice(data, mapNum, typeId); // đảm bảo record đã được khởi tạo
+            const key = `${mapNum}_${typeId}`;
+            data.realEstate[key].boostPct = (data.realEstate[key].boostPct || 0) + pct;
+            logAdminAction(data, uid, `boostbds ${typeId} map${mapNum} ${pct}%`);
+            saveData(data);
+            return message.reply(`✅ Đã ${pct >= 0 ? 'tăng' : 'giảm'} giá **${info.name}** (Map ${mapNum}) thêm **${pct}%**. Giá mới: ${fmtCur(getRealEstateCurrentPrice(data, mapNum, typeId), mapNum)}`);
         }
 
         // ===== SET PRICE =====
@@ -2519,7 +3303,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 );
             if (leveled) embed.addFields({ name: '🎊 LEVEL UP!', value: `Level **${userData.level}** — ${getTitle(userData.level).emoji} ${getTitle(userData.level).title}` });
             if (newAchs.length > 0) embed.addFields({ name: '🏅 Thành tích!', value: newAchs.map(id => ACHIEVEMENTS.find(a => a.id === id)?.emoji + ' ' + ACHIEVEMENTS.find(a => a.id === id)?.name).join('\n') });
-            if (total >= LARGE_TRADE_THRESHOLD) announceHugeTrade(interaction.guild, interaction.user, 'buy', code, qty, total);
+            if (total >= (LARGE_TRADE_THRESHOLD[userData.mapStage] || LARGE_TRADE_THRESHOLD[1])) announceHugeTrade(interaction.guild, interaction.user, 'buy', code, qty, total, userData.mapStage);
             return interaction.reply({ embeds: [embed] });
         }
 
@@ -2550,7 +3334,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 );
             if (leveled) embed.addFields({ name: '🎊 LEVEL UP!', value: `Level **${userData.level}** — ${getTitle(userData.level).emoji} ${getTitle(userData.level).title}` });
             if (newAchs.length > 0) embed.addFields({ name: '🏅 Thành tích!', value: newAchs.map(id => ACHIEVEMENTS.find(a => a.id === id)?.emoji + ' ' + ACHIEVEMENTS.find(a => a.id === id)?.name).join('\n') });
-            if (total >= LARGE_TRADE_THRESHOLD) announceHugeTrade(interaction.guild, interaction.user, 'sell', code, qty, total);
+            if (total >= (LARGE_TRADE_THRESHOLD[userData.mapStage] || LARGE_TRADE_THRESHOLD[1])) announceHugeTrade(interaction.guild, interaction.user, 'sell', code, qty, total, userData.mapStage);
             return interaction.reply({ embeds: [embed] });
         }
     }
